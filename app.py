@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request, render_template
 from ai import BackgammonAI
-from game import Game, Player
+from game.game import Game, Player
 import uuid
 
 app = Flask(__name__)
