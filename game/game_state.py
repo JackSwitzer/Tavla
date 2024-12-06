@@ -1,43 +1,16 @@
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
-from game.player import Player
-from game.move import MoveValidator
-
-@dataclass
-class Point:
-    count: int = 0  # Positive for white, negative for black
-        
-    @property
-    def is_empty(self) -> bool:
-        return self.count == 0
-        
-    @property
-    def color(self) -> Optional[Player]:
-        if self.count > 0:
-            return Player.WHITE
-        elif self.count < 0:
-            return Player.BLACK
-        return None
-        
-    @property
-    def is_blot(self) -> bool:
-        return abs(self.count) == 1
-    
-    def __str__(self) -> str:
-        if self.is_empty:
-            return "0"
-        return f"{abs(self.count)}{'W' if self.count > 0 else 'B'}"
-    
-    @classmethod
-    def from_str(cls, s: str) -> 'Point':
-        if s == "0":
-            return cls()
-        count = int(s[:-1])
-        color = s[-1]
-        return cls(count if color == 'W' else -count)
+import json
+from game.types import Player, Point, GameStateSnapshot
+from game.utils.constants import BOARD_POINTS, INITIAL_POSITION, PIECES_PER_PLAYER
+from game.exceptions import InvalidStateError
 
 @dataclass
 class GameState:
+    """
+    Pure data class representing the state of a backgammon game.
+    Handles state validation and serialization.
+    """
     board: List[Point]
     current_player: Player
     dice: Optional[Tuple[int, ...]]
@@ -46,42 +19,20 @@ class GameState:
     game_over: bool = False
     move_count: int = 0
     remaining_doubles: Optional[int] = None
-    
+
     def __post_init__(self):
-        """Validate state on creation"""
-        if len(self.board) != 24:
-            raise ValueError("Board must have exactly 24 points")
-        
-        # Validate piece counts
-        white_count = sum(p.count for p in self.board if p.count > 0)
-        black_count = sum(-p.count for p in self.board if p.count < 0)
-        white_total = white_count + self.bar[Player.WHITE] + self.off[Player.WHITE]
-        black_total = black_count + self.bar[Player.BLACK] + self.off[Player.BLACK]
-        
-        if white_total > 15 or black_total > 15:
-            raise ValueError("Invalid piece count")
-    
+        """Validate state after initialization"""
+        if not self.validate_state():
+            raise InvalidStateError("Invalid game state")
+
     @classmethod
     def create_initial_state(cls) -> 'GameState':
-        """Factory method for creating initial game state"""
-        board = [Point() for _ in range(24)]
+        """Create a new game state with initial setup"""
+        board = [Point() for _ in range(BOARD_POINTS)]
         
-        # Standard backgammon starting position
-        initial_position = {
-            0: 2,    # Point 1  (2 white pieces)
-            11: 5,   # Point 12 (5 white pieces)
-            16: 3,   # Point 17 (3 white pieces)
-            18: 5,   # Point 19 (5 white pieces)
-            
-            23: -2,  # Point 24 (2 black pieces)
-            12: -5,  # Point 13 (5 black pieces)
-            7: -3,   # Point 8  (3 black pieces)
-            5: -5,   # Point 6  (5 black pieces)
-        }
+        for point_idx, count in INITIAL_POSITION:
+            board[point_idx - 1] = Point(count)
         
-        for point_idx, count in initial_position.items():
-            board[point_idx].count = count
-            
         return cls(
             board=board,
             current_player=Player.WHITE,
@@ -89,54 +40,76 @@ class GameState:
             bar={Player.WHITE: 0, Player.BLACK: 0},
             off={Player.WHITE: 0, Player.BLACK: 0}
         )
-    
-    def to_json(self) -> dict:
-        """Convert state to JSON-serializable format for web client"""
-        validator = MoveValidator(self)
-        return {
-            'board': [str(point) for point in self.board],
-            'currentPlayer': self.current_player.value,
-            'dice': list(self.dice) if self.dice else None,
-            'bar': {
-                'white': self.bar[Player.WHITE],
-                'black': self.bar[Player.BLACK]
-            },
-            'off': {
-                'white': self.off[Player.WHITE],
-                'black': self.off[Player.BLACK]
-            },
-            'gameOver': self.game_over,
-            'moveCount': self.move_count,
-            'validMoves': [
-                {
-                    'from': move.from_point,
-                    'to': move.to_point,
-                    'dice': move.dice_value
-                }
-                for move in validator.get_valid_moves()
-            ]
-        }
-    
-    @classmethod
-    def from_json(cls, data: dict) -> 'GameState':
-        """Create GameState from JSON data"""
+
+    def validate_state(self) -> bool:
+        """Validate the current state is legal"""
         try:
-            state = cls(
-                board=[Point.from_str(p) for p in data['board']],
-                current_player=Player(data['currentPlayer']),
-                dice=tuple(data['dice']) if data['dice'] else None,
-                bar={
-                    Player.WHITE: data['bar']['white'],
-                    Player.BLACK: data['bar']['black']
-                },
-                off={
-                    Player.WHITE: data['off']['white'],
-                    Player.BLACK: data['off']['black']
-                },
-                game_over=data['gameOver'],
-                move_count=data['moveCount']
-            )
-            state.__post_init__()  # Validate the loaded state
-            return state
-        except (KeyError, ValueError) as e:
-            raise ValueError(f"Invalid game state data: {e}")
+            # Check piece counts
+            white_count = sum(p.count for p in self.board if p.count > 0)
+            black_count = sum(-p.count for p in self.board if p.count < 0)
+            white_count += self.bar[Player.WHITE] + self.off[Player.WHITE]
+            black_count += self.bar[Player.BLACK] + self.off[Player.BLACK]
+            
+            # Basic validations
+            assert white_count == PIECES_PER_PLAYER
+            assert black_count == PIECES_PER_PLAYER
+            assert all(-15 <= p.count <= 15 for p in self.board)
+            assert all(count >= 0 for count in self.bar.values())
+            assert all(count >= 0 for count in self.off.values())
+            
+            # Dice validation
+            if self.dice:
+                assert all(1 <= d <= 6 for d in self.dice)
+                assert 1 <= len(self.dice) <= 4
+            
+            # Doubles validation
+            if self.remaining_doubles is not None:
+                assert 0 <= self.remaining_doubles <= 4
+            
+            return True
+            
+        except AssertionError:
+            return False
+
+    def to_snapshot(self) -> GameStateSnapshot:
+        """Create immutable snapshot of current state"""
+        return GameStateSnapshot(
+            board_state=tuple(point.count for point in self.board),
+            current_player=self.current_player,
+            dice=self.dice,
+            bar=self.bar.copy(),
+            off=self.off.copy(),
+            game_over=self.game_over,
+            move_count=self.move_count,
+            remaining_doubles=self.remaining_doubles
+        )
+
+    @classmethod
+    def from_snapshot(cls, snapshot: GameStateSnapshot) -> 'GameState':
+        """Create new state from snapshot"""
+        return cls(
+            board=[Point(count) for count in snapshot.board_state],
+            current_player=snapshot.current_player,
+            dice=snapshot.dice,
+            bar=snapshot.bar.copy(),
+            off=snapshot.off.copy(),
+            game_over=snapshot.game_over,
+            move_count=snapshot.move_count,
+            remaining_doubles=snapshot.remaining_doubles
+        )
+
+    def get_player_points(self, player: Player) -> List[int]:
+        """Get points where player has pieces (excluding bar/off)"""
+        return [
+            i for i, point in enumerate(self.board)
+            if point.color == player
+        ]
+
+    def is_player_blocked(self, player: Player) -> bool:
+        """Check if player has any legal moves available"""
+        return (
+            self.bar[player] > 0 and
+            all(self.board[i].count >= 2 and 
+                self.board[i].color == player.opponent
+                for i in range(BOARD_POINTS))
+        )

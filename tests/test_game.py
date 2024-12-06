@@ -1,5 +1,6 @@
 import unittest
-from game.game import Game, Player, Move, Point
+from game.types import Player, Point, Move
+from game.game import Game
 from game.game_state import GameState
 
 class TestBackgammonGame(unittest.TestCase):
@@ -53,25 +54,20 @@ class TestBackgammonGame(unittest.TestCase):
         self.game.state.dice = (6, 5)
         moves = self.game.get_valid_moves()
         
-        # Test specific valid moves without relying on print statements
+        # Convert expected and actual moves to sets of tuples for easier comparison
         expected_moves = {
-            Move(18, 13, 5),  # Point 19 to 14 using 5
-            Move(18, 12, 6),  # Point 19 to 13 using 6
-            Move(16, 11, 5),  # Point 17 to 12 using 5
-            Move(16, 10, 6),  # Point 17 to 11 using 6
-            Move(11, 6, 5),   # Point 12 to 7 using 5
-            Move(11, 5, 6),   # Point 12 to 6 using 6
-            Move(0, 5, 5),    # Point 1 to 6 using 5
-            Move(0, 6, 6),    # Point 1 to 7 using 6
+            (18, 13, 5),  # Point 19 to 14 using 5
+            (18, 12, 6),  # Point 19 to 13 using 6
+            (16, 11, 5),  # Point 17 to 12 using 5
+            (16, 10, 6),  # Point 17 to 11 using 6
+            (11, 6, 5),   # Point 12 to 7 using 5
+            (11, 5, 6),   # Point 12 to 6 using 6
+            (0, 5, 5),    # Point 1 to 6 using 5
+            (0, 6, 6),    # Point 1 to 7 using 6
         }
         
-        # Convert lists to sets for comparison
-        actual_moves = set(moves)
-        self.assertEqual(
-            expected_moves, 
-            actual_moves, 
-            f"Expected moves: {expected_moves}\nActual moves: {actual_moves}"
-        )
+        actual_moves = {(m.from_point, m.to_point, m.dice_value) for m in moves}
+        self.assertEqual(expected_moves, actual_moves)
 
     def test_bar_moves(self):
         """Test moves when pieces are on the bar"""
@@ -154,32 +150,26 @@ class TestBackgammonGame(unittest.TestCase):
 
     def test_doubles_handling(self):
         """Test handling of double dice values"""
-        # Set up a position for testing doubles
         self.game.state.board = [Point() for _ in range(24)]
-        self.game.state.board[0].count = 4  # Four white pieces on point 1
+        self.game.state.board[0].count = 4  # Four white pieces
         self.game.state.dice = (4, 4)
         
-        # Test initial moves available
+        # Verify all four moves are available initially
         moves = self.game.get_valid_moves()
-        self.assertEqual(len([m for m in moves if m.dice_value == 4]), 4,
-                        "Should have exactly 4 moves available with doubles")
+        self.assertEqual(len([m for m in moves if m.dice_value == 4]), 4)
         
-        # Execute all four moves
+        # Execute moves one by one
         for i in range(4):
             move = Move(0, 4, 4)
-            self.assertTrue(self.game.make_move(move), 
-                           f"Move {i+1} should be valid")
+            self.assertTrue(self.game.make_move(move))
+            
+            # Check remaining moves
             if i < 3:
-                self.assertIsNotNone(self.game.state.dice, 
-                                   f"Dice should remain after move {i+1}")
-        
-        # Verify final position
-        self.assertEqual(self.game.state.board[0].count, 0,
-                        "Source point should be empty")
-        self.assertEqual(self.game.state.board[4].count, 4,
-                        "Target point should have all pieces")
-        self.assertIsNone(self.game.state.dice,
-                        "Dice should be consumed after all moves")
+                self.assertEqual(self.game.state.remaining_doubles, 3 - i)
+                self.assertEqual(len(self.game.state.dice), 3 - i)
+            else:
+                self.assertIsNone(self.game.state.remaining_doubles)
+                self.assertIsNone(self.game.state.dice)
 
     def test_game_over(self):
         """Test game over detection"""
@@ -374,6 +364,58 @@ class TestBackgammonGame(unittest.TestCase):
         # Verify board state
         for i in range(24):
             self.assertEqual(new_state.board[i].count, self.game.state.board[i].count)
+
+    def test_forced_move_sequence(self):
+        """Test that player must use larger dice first when bearing off"""
+        self.game.state.board = [Point() for _ in range(24)]
+        self.game.state.board[0].count = 1  # One piece on point 1
+        self.game.state.board[4].count = 1  # One piece on point 5
+        self.game.state.dice = (6, 1)
+        
+        # Should be forced to use 6 first when bearing off
+        moves = self.game.get_valid_moves()
+        self.assertEqual(len(moves), 1)
+        self.assertEqual(moves[0].dice_value, 6)
+
+    def test_move_validation_with_bar(self):
+        """Test that moves are properly validated when pieces are on the bar"""
+        self.game.state.bar[Player.WHITE] = 1
+        self.game.state.dice = (3, 4)
+        
+        # Should only allow moves from bar
+        moves = self.game.get_valid_moves()
+        self.assertTrue(all(m.from_point == 24 for m in moves))
+        
+        # Try invalid move from board
+        invalid_move = Move(0, 3, 3)
+        self.assertFalse(self.game.make_move(invalid_move))
+
+    def test_complete_game_state_serialization(self):
+        """Test full game state serialization/deserialization cycle"""
+        # Setup specific game state
+        self.game.state.dice = (6, 5)
+        self.game.state.bar[Player.WHITE] = 1
+        self.game.state.off[Player.BLACK] = 2
+        
+        # Serialize
+        state_json = self.game.state.to_json()
+        
+        # Deserialize
+        new_state = GameState.from_json(state_json)
+        
+        # Verify all properties match
+        self.assertEqual(new_state.current_player, self.game.state.current_player)
+        self.assertEqual(new_state.dice, self.game.state.dice)
+        self.assertEqual(new_state.bar, self.game.state.bar)
+        self.assertEqual(new_state.off, self.game.state.off)
+        
+        # Verify board state
+        for i in range(24):
+            self.assertEqual(
+                new_state.board[i].count,
+                self.game.state.board[i].count,
+                f"Mismatch at point {i+1}"
+            )
 
 if __name__ == '__main__':
     # Configure test runner

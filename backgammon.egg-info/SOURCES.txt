@@ -1,0 +1,15 @@
+README.md
+setup.py
+backgammon.egg-info/PKG-INFO
+backgammon.egg-info/SOURCES.txt
+backgammon.egg-info/dependency_links.txt
+backgammon.egg-info/top_level.txt
+game/__init__.py
+game/exceptions.py
+game/game.py
+game/game_manager.py
+game/game_state.py
+game/move.py
+game/player.py
+tests/__init__.py
+tests/test_game.py
