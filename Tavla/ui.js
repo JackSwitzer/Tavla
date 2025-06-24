@@ -6,9 +6,28 @@ class TavlaUI {
         this.validMoves = [];
         this.previousPlayer = 'white';
         
+        // AI Integration
+        this.aiPlayer = new AIPlayer(game, 'hard');
+        this.pendingPlayerMove = null;
+        this.gameStateBeforeMove = null;
+        
+        // Game statistics
+        this.gameStartTime = Date.now();
+        this.totalMoves = 0;
+        this.playerMoves = 0;
+        
+        // Drag functionality
+        this.isDragging = false;
+        this.dragOffset = { x: 0, y: 0 };
+        
         this.initializeUI();
         this.renderBoard();
         this.attachEventListeners();
+        this.createFeedbackModal();
+        this.createWinningModal();
+        this.updateAnalysisSidebar();
+        this.initializeDragFunctionality();
+        this.loadSidebarPosition();
     }
 
     initializeUI() {
@@ -22,8 +41,61 @@ class TavlaUI {
             player1Pips: document.getElementById('player1-pips'),
             player2Pips: document.getElementById('player2-pips'),
             newGameButton: document.getElementById('new-game'),
-            undoButton: document.getElementById('undo-move')
+            undoButton: document.getElementById('undo-move'),
+            // Analysis sidebar elements
+            positionMeterFill: document.getElementById('position-meter-fill'),
+            yourEV: document.getElementById('your-ev'),
+            aiEV: document.getElementById('ai-ev'),
+            pipLead: document.getElementById('pip-lead'),
+            moveQuality: document.getElementById('move-quality'),
+            moveDescription: document.getElementById('move-description'),
+            bestMoveText: document.getElementById('best-move-text'),
+            bestMoveReason: document.getElementById('best-move-reason')
         };
+    }
+
+    createFeedbackModal() {
+        // Create feedback modal HTML
+        const modalHTML = `
+            <div id="feedback-modal" class="feedback-modal" style="display: none;">
+                <div class="feedback-content">
+                    <div class="feedback-header">
+                        <h3>Move Analysis</h3>
+                        <button class="feedback-close" id="feedback-close">&times;</button>
+                    </div>
+                    <div class="feedback-body">
+                        <div id="feedback-message"></div>
+                        <div class="feedback-stats" id="feedback-stats"></div>
+                    </div>
+                    <div class="feedback-footer">
+                        <button id="feedback-ok" class="feedback-button">Got it!</button>
+                        <button id="feedback-disable" class="feedback-button secondary">Disable hints</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        
+        // Add event listeners for modal
+        document.getElementById('feedback-close').addEventListener('click', () => this.hideFeedback());
+        document.getElementById('feedback-ok').addEventListener('click', () => this.hideFeedback());
+        document.getElementById('feedback-disable').addEventListener('click', () => this.toggleFeedback());
+        
+        // Close modal when clicking outside
+        document.getElementById('feedback-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'feedback-modal') {
+                this.hideFeedback();
+            }
+        });
+        
+        this.feedbackEnabled = true;
+    }
+
+    createWinningModal() {
+        // Add event listeners for winning modal
+        document.getElementById('play-again-btn').addEventListener('click', () => this.handleNewGame());
+        document.getElementById('close-winning-btn').addEventListener('click', () => this.hideWinningScreen());
     }
 
     renderBoard() {
@@ -186,7 +258,7 @@ class TavlaUI {
     }
 
     handleRollDice() {
-        if (this.game.dice.length > 0) return;
+        if (this.game.dice.length > 0 || this.game.currentPlayer === 'black') return;
 
         const [die1, die2] = this.game.rollDice();
         
@@ -210,6 +282,7 @@ class TavlaUI {
                 setTimeout(() => {
                     this.game.endTurn();
                     this.endTurn();
+                    this.scheduleAIMove();
                 }, 2000);
             }
         }, 500);
@@ -313,30 +386,260 @@ class TavlaUI {
     }
 
     makeMove(from, to) {
+        // Store game state before move for analysis
+        this.gameStateBeforeMove = this.game.exportGameState();
+        this.pendingPlayerMove = { from, to };
+
         if (this.game.makeMove(from, to)) {
             this.clearSelection();
             this.renderBoard();
             this.updateMovesLeft();
+            this.totalMoves++;
+            
+            // Analyze player move if it's a human player move
+            if (this.gameStateBeforeMove.currentPlayer === 'white') {
+                this.playerMoves++;
+                this.analyzeAndShowFeedback();
+            }
+            
+            // Update analysis sidebar
+            this.updateAnalysisSidebar();
             
             if (this.game.gameOver) {
-                this.showGameOver();
+                this.showWinningScreen();
             } else if (this.game.dice.length === 0) {
-                // Turn already ended in game engine
+                // Turn ended, check if AI should play
                 this.endTurn();
+                this.scheduleAIMove();
             } else {
-                // The game engine already checked for valid moves
-                // If turn was ended, update UI accordingly
+                // Check if turn ended due to no valid moves
                 if (this.game.currentPlayer !== this.previousPlayer) {
                     this.showMessage('No more valid moves. Turn ended.', 'info');
                     this.endTurn();
+                    this.scheduleAIMove();
                 }
             }
             
-            // Track the current player for next move
             this.previousPlayer = this.game.currentPlayer;
         } else {
             this.showMessage('Invalid move!', 'error');
         }
+    }
+
+    analyzeAndShowFeedback() {
+        if (!this.pendingPlayerMove || !this.gameStateBeforeMove) {
+            return;
+        }
+
+        const gameStateAfter = this.game.exportGameState();
+        const feedback = this.aiPlayer.analyzePlayerMove(
+            this.pendingPlayerMove,
+            this.gameStateBeforeMove,
+            gameStateAfter
+        );
+
+        if (feedback) {
+            // Always update analysis sidebar
+            this.updateLastMoveAnalysis(feedback);
+            
+            // Show feedback popup only for non-excellent moves
+            if (feedback.category !== 'excellent' && feedback.category !== 'good') {
+                setTimeout(() => this.showFeedback(feedback), 500);
+            }
+        }
+
+        // Clear pending move data
+        this.pendingPlayerMove = null;
+        this.gameStateBeforeMove = null;
+    }
+
+    updateAnalysisSidebar() {
+        // Get current position evaluation
+        const whiteEval = this.game.evaluatePosition('white');
+        const blackEval = this.game.evaluatePosition('black');
+        
+        // Update position meter (50% = even, left = you winning, right = AI winning)
+        const positionAdvantage = whiteEval.totalEV - blackEval.totalEV;
+        const meterPosition = 50 + (positionAdvantage * 100); // Scale for display
+        const clampedPosition = Math.max(10, Math.min(90, meterPosition));
+        
+        this.elements.positionMeterFill.style.transform = `translateX(${clampedPosition - 50}%)`;
+        
+        // Update EV displays
+        this.elements.yourEV.textContent = whiteEval.totalEV >= 0 ? 
+            `+${whiteEval.totalEV.toFixed(3)}` : whiteEval.totalEV.toFixed(3);
+        this.elements.aiEV.textContent = blackEval.totalEV >= 0 ? 
+            `+${blackEval.totalEV.toFixed(3)}` : blackEval.totalEV.toFixed(3);
+            
+        // Update pip lead
+        const pipCounts = this.game.calculatePipCount();
+        const pipDiff = pipCounts.white - pipCounts.black;
+        if (Math.abs(pipDiff) < 2) {
+            this.elements.pipLead.textContent = 'Even';
+        } else if (pipDiff > 0) {
+            this.elements.pipLead.textContent = `AI +${pipDiff}`;
+        } else {
+            this.elements.pipLead.textContent = `You +${Math.abs(pipDiff)}`;
+        }
+    }
+
+    updateLastMoveAnalysis(feedback) {
+        // Update move quality indicator
+        this.elements.moveQuality.textContent = feedback.category;
+        this.elements.moveQuality.className = `move-quality ${feedback.category}`;
+        
+        // Update move description with cleaner text
+        const moveDesc = `${feedback.feedbackMessage.split('.')[0]}. (Rank ${feedback.rank}/${feedback.totalMoves})`;
+        this.elements.moveDescription.textContent = moveDesc;
+            
+        // Update best move display with improved clarity
+        const bestMoveDesc = this.aiPlayer.describeBestMove(feedback.bestMove);
+        this.elements.bestMoveText.textContent = `Optimal: ${bestMoveDesc}`;
+        
+        // Show why it's the best move with EV comparison
+        if (feedback.evDifference > 0.01) {
+            const evGain = (feedback.evDifference * 100).toFixed(1);
+            this.elements.bestMoveReason.textContent = `+${evGain}% EV better than your move`;
+        } else if (feedback.bestMove.benefits.length > 0) {
+            const reasons = feedback.bestMove.benefits.map(b => {
+                switch(b.type) {
+                    case 'hit': return 'hits opponent blot';
+                    case 'makePoint': return 'secures new point';
+                    case 'homeAdvancement': return 'advances toward home';
+                    default: return b.description;
+                }
+            }).join(', ');
+            this.elements.bestMoveReason.textContent = `Strategic value: ${reasons}`;
+        } else {
+            this.elements.bestMoveReason.textContent = 'Your move was optimal!';
+        }
+    }
+
+    describeBestMove(bestMoveAnalysis) {
+        // Use the AI's improved description method
+        return this.aiPlayer.describeBestMove(bestMoveAnalysis);
+    }
+
+    showFeedback(feedback) {
+        const modal = document.getElementById('feedback-modal');
+        const messageElement = document.getElementById('feedback-message');
+        const statsElement = document.getElementById('feedback-stats');
+
+        messageElement.innerHTML = feedback.feedbackMessage.replace(/\n/g, '<br>');
+        
+        // Add move statistics
+        const statsHTML = `
+            <div class="move-stats">
+                <div class="stat-item">
+                    <span class="stat-label">Your move rank:</span>
+                    <span class="stat-value">${feedback.rank} of ${feedback.totalMoves}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Move quality:</span>
+                    <span class="stat-value ${feedback.category}">${feedback.category.toUpperCase()}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">EV difference:</span>
+                    <span class="stat-value">${(feedback.evDifference * 100).toFixed(2)}%</span>
+                </div>
+            </div>
+        `;
+        
+        statsElement.innerHTML = statsHTML;
+        modal.style.display = 'flex';
+    }
+
+    hideFeedback() {
+        document.getElementById('feedback-modal').style.display = 'none';
+    }
+
+    toggleFeedback() {
+        this.feedbackEnabled = !this.feedbackEnabled;
+        const button = document.getElementById('feedback-disable');
+        button.textContent = this.feedbackEnabled ? 'Disable hints' : 'Enable hints';
+        this.hideFeedback();
+        
+        this.showMessage(
+            this.feedbackEnabled ? 'Move hints enabled' : 'Move hints disabled',
+            'info'
+        );
+    }
+
+    scheduleAIMove() {
+        if (this.game.currentPlayer === 'black' && !this.game.gameOver) {
+            // Add a delay to make AI moves feel more natural
+            setTimeout(() => {
+                this.makeAIMove();
+            }, 1000 + Math.random() * 1000); // 1-2 second delay
+        }
+    }
+
+    makeAIMove() {
+        if (this.game.currentPlayer !== 'black' || this.game.gameOver) {
+            return;
+        }
+
+        // AI needs dice to be rolled
+        if (this.game.dice.length === 0) {
+            const [die1, die2] = this.game.rollDice();
+            this.elements.die1.textContent = die1;
+            this.elements.die2.textContent = die2;
+            this.updateMovesLeft();
+            
+            // Show AI thinking
+            this.showMessage('AI is analyzing...', 'info');
+        }
+
+        // Get AI move
+        const aiMove = this.aiPlayer.makeMove();
+        if (aiMove) {
+            // Animate AI move
+            setTimeout(() => {
+                this.highlightMove(aiMove);
+                setTimeout(() => {
+                    if (this.game.makeMove(aiMove.from, aiMove.to)) {
+                        this.clearSelection();
+                        this.renderBoard();
+                        this.updateMovesLeft();
+                        this.updateAnalysisSidebar();
+                        this.totalMoves++;
+                        
+                        if (this.game.gameOver) {
+                            this.showWinningScreen();
+                        } else if (this.game.dice.length === 0) {
+                            this.endTurn();
+                        } else {
+                            // AI might have more moves
+                            this.scheduleAIMove();
+                        }
+                    }
+                }, 1000);
+            }, 500);
+        } else {
+            // No valid moves for AI
+            this.showMessage('AI has no valid moves', 'info');
+            this.game.endTurn();
+            this.endTurn();
+        }
+    }
+
+    highlightMove(move) {
+        // Highlight the AI's move temporarily
+        const fromElement = move.from === 'bar' 
+            ? document.querySelector(`[data-position="bar-black"]`)
+            : document.querySelector(`[data-position="${move.from}"]`);
+            
+        const toElement = move.to === 'home' 
+            ? document.getElementById('home-black')
+            : document.querySelector(`[data-position="${move.to}"]`);
+
+        if (fromElement) fromElement.classList.add('ai-move-from');
+        if (toElement) toElement.classList.add('ai-move-to');
+
+        setTimeout(() => {
+            if (fromElement) fromElement.classList.remove('ai-move-from');
+            if (toElement) toElement.classList.remove('ai-move-to');
+        }, 2000);
     }
 
     clearSelection() {
@@ -361,12 +664,20 @@ class TavlaUI {
 
     endTurn() {
         this.clearSelection();
-        this.elements.rollButton.disabled = false;
+        
+        // Only enable roll button for human player
+        if (this.game.currentPlayer === 'white') {
+            this.elements.rollButton.disabled = false;
+        } else {
+            this.elements.rollButton.disabled = true;
+        }
+        
         this.elements.die1.textContent = '?';
         this.elements.die2.textContent = '?';
         this.updateMovesLeft();
         this.renderBoard();
         this.showMessage('', '');
+        this.updateAnalysisSidebar();
     }
 
     showMessage(message, type = 'info') {
@@ -374,17 +685,189 @@ class TavlaUI {
         this.elements.messageArea.className = `message-area ${type}`;
     }
 
-    showGameOver() {
-        const winner = this.game.winner === 'white' ? 'Player 1' : 'Player 2';
-        this.showMessage(`Game Over! ${winner} wins!`, 'success');
-        this.elements.rollButton.disabled = true;
+    showWinningScreen() {
+        const winner = this.game.winner === 'white' ? 'You Win!' : 'AI Wins!';
+        const gameDuration = this.formatDuration(Date.now() - this.gameStartTime);
+        
+        // Calculate performance stats
+        const playerStats = this.aiPlayer.getPerformanceStats();
+        const aiStats = this.aiPlayer.getPerformanceStats();
+        
+        const playerAvgEV = this.aiPlayer.playerMoveAnalysis.length > 0 ? 
+            this.aiPlayer.playerMoveAnalysis.reduce((sum, analysis) => sum + analysis.playerMove.ev, 0) / 
+            this.aiPlayer.playerMoveAnalysis.length : 0;
+            
+        const aiAvgEV = this.aiPlayer.moveHistory.length > 0 ?
+            this.aiPlayer.moveHistory.reduce((sum, move) => sum + move.analysis.ev, 0) /
+            this.aiPlayer.moveHistory.length : 0;
+
+        // Update winning modal content
+        document.getElementById('winner-text').textContent = winner;
+        document.getElementById('game-duration').textContent = gameDuration;
+        document.getElementById('total-moves').textContent = this.totalMoves.toString();
+        document.getElementById('player-avg-ev').textContent = playerAvgEV >= 0 ? 
+            `+${playerAvgEV.toFixed(3)}` : playerAvgEV.toFixed(3);
+        document.getElementById('ai-avg-ev').textContent = aiAvgEV >= 0 ? 
+            `+${aiAvgEV.toFixed(3)}` : aiAvgEV.toFixed(3);
+
+        // Show the modal
+        document.getElementById('winning-modal').style.display = 'flex';
+    }
+
+    hideWinningScreen() {
+        document.getElementById('winning-modal').style.display = 'none';
+    }
+
+    formatDuration(ms) {
+        const minutes = Math.floor(ms / 60000);
+        const seconds = Math.floor((ms % 60000) / 1000);
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
     }
 
     handleNewGame() {
         this.game.initializeGame();
+        this.aiPlayer.reset();
         this.clearSelection();
         this.renderBoard();
         this.endTurn();
-        this.showMessage('New game started!', 'info');
+        this.showMessage('New game started! You play as white.', 'info');
+        
+        // Reset game statistics
+        this.gameStartTime = Date.now();
+        this.totalMoves = 0;
+        this.playerMoves = 0;
+        
+        // Clear any pending move data
+        this.pendingPlayerMove = null;
+        this.gameStateBeforeMove = null;
+        
+        // Reset analysis sidebar
+        this.resetAnalysisSidebar();
+        
+        // Hide winning screen if shown
+        this.hideWinningScreen();
+    }
+
+    resetAnalysisSidebar() {
+        this.elements.positionMeterFill.style.transform = 'translateX(0%)';
+        this.elements.yourEV.textContent = '0.000';
+        this.elements.aiEV.textContent = '0.000';
+        this.elements.pipLead.textContent = 'Even';
+        this.elements.moveQuality.textContent = '-';
+        this.elements.moveQuality.className = 'move-quality';
+        this.elements.moveDescription.textContent = 'Make your first move';
+        this.elements.bestMoveText.textContent = 'Play to see analysis';
+        this.elements.bestMoveReason.textContent = '';
+        
+        // Update initial position analysis
+        this.updateAnalysisSidebar();
+    }
+
+    initializeDragFunctionality() {
+        const sidebar = document.getElementById('analysis-sidebar');
+        const dragHandle = document.getElementById('drag-handle');
+        
+        // Mouse events
+        dragHandle.addEventListener('mousedown', (e) => this.startDrag(e));
+        document.addEventListener('mousemove', (e) => this.handleDrag(e));
+        document.addEventListener('mouseup', () => this.endDrag());
+        
+        // Touch events for mobile
+        dragHandle.addEventListener('touchstart', (e) => this.startDrag(e.touches[0]), { passive: false });
+        document.addEventListener('touchmove', (e) => this.handleDrag(e.touches[0]), { passive: false });
+        document.addEventListener('touchend', () => this.endDrag());
+        
+        // Prevent default drag behavior
+        dragHandle.addEventListener('dragstart', (e) => e.preventDefault());
+    }
+
+    startDrag(e) {
+        this.isDragging = true;
+        const sidebar = document.getElementById('analysis-sidebar');
+        const rect = sidebar.getBoundingClientRect();
+        
+        this.dragOffset.x = e.clientX - rect.left;
+        this.dragOffset.y = e.clientY - rect.top;
+        
+        sidebar.classList.add('dragging');
+        document.body.style.userSelect = 'none';
+        
+        e.preventDefault();
+    }
+
+    handleDrag(e) {
+        if (!this.isDragging) return;
+        
+        const sidebar = document.getElementById('analysis-sidebar');
+        const newX = e.clientX - this.dragOffset.x;
+        const newY = e.clientY - this.dragOffset.y;
+        
+        // Keep sidebar within viewport bounds
+        const maxX = window.innerWidth - sidebar.offsetWidth;
+        const maxY = window.innerHeight - sidebar.offsetHeight;
+        
+        const constrainedX = Math.max(0, Math.min(newX, maxX));
+        const constrainedY = Math.max(0, Math.min(newY, maxY));
+        
+        sidebar.style.left = `${constrainedX}px`;
+        sidebar.style.top = `${constrainedY}px`;
+        
+        e.preventDefault();
+    }
+
+    endDrag() {
+        if (!this.isDragging) return;
+        
+        this.isDragging = false;
+        const sidebar = document.getElementById('analysis-sidebar');
+        
+        sidebar.classList.remove('dragging');
+        document.body.style.userSelect = '';
+        
+        // Save position to localStorage
+        this.saveSidebarPosition();
+    }
+
+    saveSidebarPosition() {
+        const sidebar = document.getElementById('analysis-sidebar');
+        const position = {
+            left: sidebar.style.left,
+            top: sidebar.style.top
+        };
+        localStorage.setItem('analysisPosition', JSON.stringify(position));
+    }
+
+    loadSidebarPosition() {
+        const savedPosition = localStorage.getItem('analysisPosition');
+        if (savedPosition) {
+            const position = JSON.parse(savedPosition);
+            const sidebar = document.getElementById('analysis-sidebar');
+            
+            // Validate position is still within viewport
+            const maxX = window.innerWidth - sidebar.offsetWidth;
+            const maxY = window.innerHeight - sidebar.offsetHeight;
+            
+            const x = Math.max(0, Math.min(parseInt(position.left), maxX));
+            const y = Math.max(0, Math.min(parseInt(position.top), maxY));
+            
+            sidebar.style.left = `${x}px`;
+            sidebar.style.top = `${y}px`;
+        }
+    }
+
+    // Handle window resize to keep sidebar in bounds
+    handleWindowResize() {
+        const sidebar = document.getElementById('analysis-sidebar');
+        const maxX = window.innerWidth - sidebar.offsetWidth;
+        const maxY = window.innerHeight - sidebar.offsetHeight;
+        
+        const currentX = parseInt(sidebar.style.left) || 20;
+        const currentY = parseInt(sidebar.style.top) || 20;
+        
+        const newX = Math.max(0, Math.min(currentX, maxX));
+        const newY = Math.max(0, Math.min(currentY, maxY));
+        
+        sidebar.style.left = `${newX}px`;
+        sidebar.style.top = `${newY}px`;
     }
 }

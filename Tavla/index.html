@@ -7,6 +7,38 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Winning Screen Modal -->
+    <div id="winning-modal" class="winning-modal" style="display: none;">
+        <div class="winning-content">
+            <div class="winning-animation">
+                <div class="winner-crown">👑</div>
+                <h2 id="winner-text">Player 1 Wins!</h2>
+                <div class="winning-stats">
+                    <div class="stat-row">
+                        <span>Game Duration:</span>
+                        <span id="game-duration">5:23</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Total Moves:</span>
+                        <span id="total-moves">47</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Your Avg EV:</span>
+                        <span id="player-avg-ev">+0.12</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>AI Avg EV:</span>
+                        <span id="ai-avg-ev">+0.08</span>
+                    </div>
+                </div>
+                <div class="winning-buttons">
+                    <button id="play-again-btn" class="winning-button primary">Play Again</button>
+                    <button id="close-winning-btn" class="winning-button secondary">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="theme-selector" id="theme-selector">
         <div class="theme-modal">
             <h2>Choose Your Board Style</h2>
@@ -36,151 +68,212 @@
     </div>
     
     <div class="game-container" style="display: none;">
-        <div class="rules-guide">
-            <button class="rules-toggle">📖 Rules</button>
-            <div class="rules-content">
-                <h3>Turkish Tavla Rules</h3>
-                <div class="rules-section">
-                    <h4>Objective</h4>
-                    <p>Move all 15 checkers to your home board and bear them off.</p>
+        <!-- Analysis Sidebar -->
+        <div class="analysis-sidebar" id="analysis-sidebar">
+            <div class="drag-handle" id="drag-handle"></div>
+            
+            <div class="analysis-header">
+                <h3>🧠 Position Analysis</h3>
+            </div>
+            
+            <div class="position-meter">
+                <div class="meter-label">Position Evaluation</div>
+                <div class="meter-bar">
+                    <div class="meter-fill" id="position-meter-fill"></div>
+                    <div class="meter-center"></div>
                 </div>
-                <div class="rules-section">
-                    <h4>Setup</h4>
-                    <ul>
-                        <li>Each player has 15 checkers</li>
-                        <li>White: 2 on 24, 5 on 13, 3 on 8, 5 on 6</li>
-                        <li>Black: 2 on 1, 5 on 12, 3 on 17, 5 on 19</li>
-                    </ul>
+                <div class="meter-labels">
+                    <span>You</span>
+                    <span>AI</span>
                 </div>
-                <div class="rules-section">
-                    <h4>Movement</h4>
-                    <ul>
-                        <li>White moves counter-clockwise (24→1)</li>
-                        <li>Black moves clockwise (1→24)</li>
-                        <li>Move checkers according to dice values</li>
-                        <li>Doubles = 4 moves of that value</li>
-                        <li>Must use both dice if possible</li>
-                    </ul>
+            </div>
+
+            <div class="analysis-stats">
+                <div class="stat-group">
+                    <h4>📊 Current Position</h4>
+                    <div class="stat-item">
+                        <span>Your EV:</span>
+                        <span id="your-ev">0.00</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>AI EV:</span>
+                        <span id="ai-ev">0.00</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Pip Lead:</span>
+                        <span id="pip-lead">Even</span>
+                    </div>
                 </div>
-                <div class="rules-section">
-                    <h4>Key Rules</h4>
-                    <ul>
-                        <li><strong>Hitting:</strong> Land on opponent's single checker (blot) to send it to bar</li>
-                        <li><strong>Blocked:</strong> Cannot land on point with 2+ opponent checkers</li>
-                        <li><strong>Bar:</strong> Must re-enter from bar before any other moves</li>
-                        <li><strong>Bar Entry:</strong> White enters on 19-24, Black on 1-6</li>
-                        <li><strong>Bearing Off:</strong> Only when ALL checkers in home board</li>
-                        <li><strong>Bear Off Rules:</strong> Exact die or higher if no checkers on higher points</li>
-                    </ul>
+
+                <div class="stat-group">
+                    <h4>🎯 Last Move</h4>
+                    <div id="last-move-analysis">
+                        <div class="move-quality" id="move-quality">-</div>
+                        <div class="move-description" id="move-description">Make your first move</div>
+                    </div>
                 </div>
-                <div class="rules-section">
-                    <h4>Winning</h4>
-                    <ul>
-                        <li>First player to bear off all 15 checkers wins</li>
-                        <li>No doubling cube in this version</li>
-                        <li>Single game scoring only</li>
-                    </ul>
+
+                <div class="stat-group">
+                    <h4>💡 Best Move</h4>
+                    <div id="best-move-display">
+                        <div class="best-move-section">
+                            <div class="best-move-text" id="best-move-text">Play to see analysis</div>
+                            <div class="best-move-reason" id="best-move-reason"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-        <header>
-            <h1>Turkish Tavla</h1>
-            <div class="game-info">
-                <div class="player-info" id="player1-info">
-                    <span class="player-name">Player 1 (White)</span>
-                    <span class="player-pip-count" id="player1-pips">167</span>
-                </div>
-                <div class="turn-indicator" id="turn-indicator">
-                    <span id="current-player">Player 1's Turn</span>
-                </div>
-                <div class="player-info" id="player2-info">
-                    <span class="player-name">Player 2 (Black)</span>
-                    <span class="player-pip-count" id="player2-pips">167</span>
-                </div>
-            </div>
-        </header>
 
-        <div class="board-container">
-            <div class="board-frame">
-                <div class="board-side top">
-                    <div class="quadrant" id="quadrant-top-left">
-                        <div class="point" data-position="13"><div class="point-number">13</div></div>
-                        <div class="point" data-position="14"><div class="point-number">14</div></div>
-                        <div class="point" data-position="15"><div class="point-number">15</div></div>
-                        <div class="point" data-position="16"><div class="point-number">16</div></div>
-                        <div class="point" data-position="17"><div class="point-number">17</div></div>
-                        <div class="point" data-position="18"><div class="point-number">18</div></div>
+        <div class="main-game-area">
+            <div class="rules-guide">
+                <button class="rules-toggle">📖 Rules</button>
+                <div class="rules-content">
+                    <h3>Turkish Tavla Rules</h3>
+                    <div class="rules-section">
+                        <h4>Objective</h4>
+                        <p>Move all 15 checkers to your home board and bear them off.</p>
                     </div>
-                    <div class="quadrant" id="quadrant-top-right">
-                        <div class="point" data-position="19"><div class="point-number">19</div></div>
-                        <div class="point" data-position="20"><div class="point-number">20</div></div>
-                        <div class="point" data-position="21"><div class="point-number">21</div></div>
-                        <div class="point" data-position="22"><div class="point-number">22</div></div>
-                        <div class="point" data-position="23"><div class="point-number">23</div></div>
-                        <div class="point" data-position="24"><div class="point-number">24</div></div>
+                    <div class="rules-section">
+                        <h4>Setup</h4>
+                        <ul>
+                            <li>Each player has 15 checkers</li>
+                            <li>White: 2 on 24, 5 on 13, 3 on 8, 5 on 6</li>
+                            <li>Black: 2 on 1, 5 on 12, 3 on 17, 5 on 19</li>
+                        </ul>
                     </div>
-                </div>
-
-                <div class="board-side bottom">
-                    <div class="quadrant" id="quadrant-bottom-left">
-                        <div class="point" data-position="12"><div class="point-number">12</div></div>
-                        <div class="point" data-position="11"><div class="point-number">11</div></div>
-                        <div class="point" data-position="10"><div class="point-number">10</div></div>
-                        <div class="point" data-position="9"><div class="point-number">9</div></div>
-                        <div class="point" data-position="8"><div class="point-number">8</div></div>
-                        <div class="point" data-position="7"><div class="point-number">7</div></div>
+                    <div class="rules-section">
+                        <h4>Movement</h4>
+                        <ul>
+                            <li>White moves counter-clockwise (24→1)</li>
+                            <li>Black moves clockwise (1→24)</li>
+                            <li>Move checkers according to dice values</li>
+                            <li>Doubles = 4 moves of that value</li>
+                            <li>Must use both dice if possible</li>
+                        </ul>
                     </div>
-                    <div class="quadrant" id="quadrant-bottom-right">
-                        <div class="point" data-position="6"><div class="point-number">6</div></div>
-                        <div class="point" data-position="5"><div class="point-number">5</div></div>
-                        <div class="point" data-position="4"><div class="point-number">4</div></div>
-                        <div class="point" data-position="3"><div class="point-number">3</div></div>
-                        <div class="point" data-position="2"><div class="point-number">2</div></div>
-                        <div class="point" data-position="1"><div class="point-number">1</div></div>
+                    <div class="rules-section">
+                        <h4>Key Rules</h4>
+                        <ul>
+                            <li><strong>Hitting:</strong> Land on opponent's single checker (blot) to send it to bar</li>
+                            <li><strong>Blocked:</strong> Cannot land on point with 2+ opponent checkers</li>
+                            <li><strong>Bar:</strong> Must re-enter from bar before any other moves</li>
+                            <li><strong>Bar Entry:</strong> White enters on 19-24, Black on 1-6</li>
+                            <li><strong>Bearing Off:</strong> Only when ALL checkers in home board</li>
+                            <li><strong>Bear Off Rules:</strong> Exact die or higher if no checkers on higher points</li>
+                        </ul>
                     </div>
-                </div>
-                
-                <div class="bar" id="bar">
-                    <div class="bar-section" id="bar-white">
-                        <div class="checker-stack" data-position="bar-white"></div>
-                    </div>
-                    <div class="bar-divider"></div>
-                    <div class="bar-section" id="bar-black">
-                        <div class="checker-stack" data-position="bar-black"></div>
-                    </div>
-                </div>
-                
-                <div class="home-areas">
-                    <div class="home" id="home-black">
-                        <div class="home-label">Black Home</div>
-                        <div class="checker-stack" data-position="home-black"></div>
-                    </div>
-                    <div class="home" id="home-white">
-                        <div class="home-label">White Home</div>
-                        <div class="checker-stack" data-position="home-white"></div>
+                    <div class="rules-section">
+                        <h4>Winning</h4>
+                        <ul>
+                            <li>First player to bear off all 15 checkers wins</li>
+                            <li>No doubling cube in this version</li>
+                            <li>Single game scoring only</li>
+                        </ul>
                     </div>
                 </div>
             </div>
             
-            <div class="dice-area">
-                <button id="roll-dice" class="roll-button">Roll Dice</button>
-                <div class="dice-container">
-                    <div class="die" id="die1">?</div>
-                    <div class="die" id="die2">?</div>
+            <header>
+                <h1>Turkish Tavla</h1>
+                <div class="game-info">
+                    <div class="player-info" id="player1-info">
+                        <span class="player-name">Player 1 (White)</span>
+                        <span class="player-pip-count" id="player1-pips">167</span>
+                    </div>
+                    <div class="turn-indicator" id="turn-indicator">
+                        <span id="current-player">Player 1's Turn</span>
+                    </div>
+                    <div class="player-info" id="player2-info">
+                        <span class="player-name">Player 2 (Black)</span>
+                        <span class="player-pip-count" id="player2-pips">167</span>
+                    </div>
                 </div>
-                <div class="moves-left" id="moves-left"></div>
+            </header>
+
+            <div class="board-container">
+                <div class="board-frame">
+                    <div class="board-side top">
+                        <div class="quadrant" id="quadrant-top-left">
+                            <div class="point" data-position="13"><div class="point-number">13</div></div>
+                            <div class="point" data-position="14"><div class="point-number">14</div></div>
+                            <div class="point" data-position="15"><div class="point-number">15</div></div>
+                            <div class="point" data-position="16"><div class="point-number">16</div></div>
+                            <div class="point" data-position="17"><div class="point-number">17</div></div>
+                            <div class="point" data-position="18"><div class="point-number">18</div></div>
+                        </div>
+                        <div class="quadrant" id="quadrant-top-right">
+                            <div class="point" data-position="19"><div class="point-number">19</div></div>
+                            <div class="point" data-position="20"><div class="point-number">20</div></div>
+                            <div class="point" data-position="21"><div class="point-number">21</div></div>
+                            <div class="point" data-position="22"><div class="point-number">22</div></div>
+                            <div class="point" data-position="23"><div class="point-number">23</div></div>
+                            <div class="point" data-position="24"><div class="point-number">24</div></div>
+                        </div>
+                    </div>
+
+                    <div class="board-side bottom">
+                        <div class="quadrant" id="quadrant-bottom-left">
+                            <div class="point" data-position="12"><div class="point-number">12</div></div>
+                            <div class="point" data-position="11"><div class="point-number">11</div></div>
+                            <div class="point" data-position="10"><div class="point-number">10</div></div>
+                            <div class="point" data-position="9"><div class="point-number">9</div></div>
+                            <div class="point" data-position="8"><div class="point-number">8</div></div>
+                            <div class="point" data-position="7"><div class="point-number">7</div></div>
+                        </div>
+                        <div class="quadrant" id="quadrant-bottom-right">
+                            <div class="point" data-position="6"><div class="point-number">6</div></div>
+                            <div class="point" data-position="5"><div class="point-number">5</div></div>
+                            <div class="point" data-position="4"><div class="point-number">4</div></div>
+                            <div class="point" data-position="3"><div class="point-number">3</div></div>
+                            <div class="point" data-position="2"><div class="point-number">2</div></div>
+                            <div class="point" data-position="1"><div class="point-number">1</div></div>
+                        </div>
+                    </div>
+                    
+                    <div class="bar" id="bar">
+                        <div class="bar-section" id="bar-white">
+                            <div class="checker-stack" data-position="bar-white"></div>
+                        </div>
+                        <div class="bar-divider"></div>
+                        <div class="bar-section" id="bar-black">
+                            <div class="checker-stack" data-position="bar-black"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="home-areas">
+                        <div class="home" id="home-black">
+                            <div class="home-label">Black Home</div>
+                            <div class="checker-stack" data-position="home-black"></div>
+                        </div>
+                        <div class="home" id="home-white">
+                            <div class="home-label">White Home</div>
+                            <div class="checker-stack" data-position="home-white"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="dice-area">
+                    <button id="roll-dice" class="roll-button">Roll Dice</button>
+                    <div class="dice-container">
+                        <div class="die" id="die1">?</div>
+                        <div class="die" id="die2">?</div>
+                    </div>
+                    <div class="moves-left" id="moves-left"></div>
+                </div>
             </div>
-        </div>
 
-        <div class="controls">
-            <button id="new-game" class="control-button">New Game</button>
-            <button id="undo-move" class="control-button" disabled>Undo Move</button>
-        </div>
+            <div class="controls">
+                <button id="new-game" class="control-button">New Game</button>
+                <button id="undo-move" class="control-button" disabled>Undo Move</button>
+            </div>
 
-        <div class="message-area" id="message-area"></div>
+            <div class="message-area" id="message-area"></div>
+        </div>
     </div>
 
     <script src="game-engine.js"></script>
+    <script src="ai-players.js"></script>
     <script src="ui.js"></script>
     <script src="main.js"></script>
 </body>

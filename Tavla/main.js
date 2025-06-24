@@ -31,10 +31,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.tavlaGame = game;
                 window.tavlaUI = ui;
                 
+                // Add window resize handler for draggable sidebar
+                window.addEventListener('resize', () => {
+                    if (ui && ui.handleWindowResize) {
+                        ui.handleWindowResize();
+                    }
+                });
+                
                 console.log('Turkish Tavla game initialized!');
                 console.log('Selected theme:', selectedTheme);
                 console.log('Game instance available as window.tavlaGame');
                 console.log('UI instance available as window.tavlaUI');
+                console.log('📋 Analysis sidebar is draggable - grab the handle at the top!');
             }
         });
     });
